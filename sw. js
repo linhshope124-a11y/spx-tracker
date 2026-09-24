@@ -1,0 +1,92 @@
+// ================================================
+// SERVICE WORKER - SPX Tracker PWA v1.8
+// ================================================
+const CACHE_NAME = 'spx-tracker-v1';
+
+const PRECACHE_URLS = [
+  './',
+  './index.html',
+  './manifest.json',
+  'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js'
+];
+
+self.addEventListener('install', event => {
+  console.log('[SW] Installing...');
+  event.waitUntil(
+    caches.open(CACHE_NAME).then(cache =>
+      Promise.all(
+        PRECACHE_URLS.map(url =>
+          cache.add(url).catch(err => console.warn('[SW] Skip:', url, err))
+        )
+      )
+    )
+  );
+  self.skipWaiting();
+});
+
+self.addEventListener('activate', event => {
+  console.log('[SW] Activating...');
+  event.waitUntil(
+    caches.keys().then(keys =>
+      Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)))
+    )
+  );
+  self.clients.claim();
+});
+
+self.addEventListener('fetch', event => {
+  const req = event.request;
+  const url = new URL(req.url);
+  if (req.method !== 'GET') return;
+
+  const isTesseract =
+    url.hostname.includes('jsdelivr') ||
+    url.hostname.includes('unpkg') ||
+    url.hostname.includes('projectnaptha') ||
+    url.hostname.includes('tessdata') ||
+    url.pathname.endsWith('.wasm') ||
+    url.pathname.endsWith('.wasm.js') ||
+    url.pathname.endsWith('.traineddata') ||
+    url.pathname.endsWith('.traineddata.gz') ||
+    url.pathname.includes('tesseract') ||
+    url.pathname.includes('worker.min.js');
+
+  if (isTesseract) {
+    event.respondWith(
+      caches.match(req).then(cached => {
+        if (cached) return cached;
+        return fetch(req).then(res => {
+          if (res && res.ok) caches.open(CACHE_NAME).then(c => c.put(req, res.clone()));
+          return res;
+        }).catch(() => cached);
+      })
+    );
+    return;
+  }
+
+  if (req.mode === 'navigate') {
+    event.respondWith(
+      fetch(req).then(res => {
+        caches.open(CACHE_NAME).then(c => c.put(req, res.clone()));
+        return res;
+      }).catch(() => caches.match('./index.html').then(r => r || caches.match('./')))
+    );
+    return;
+  }
+
+  event.respondWith(
+    caches.match(req).then(cached => {
+      if (cached) return cached;
+      return fetch(req).then(res => {
+        if (res && res.ok && url.origin === self.location.origin) {
+          caches.open(CACHE_NAME).then(c => c.put(req, res.clone()));
+        }
+        return res;
+      });
+    })
+  );
+});
+
+self.addEventListener('message', event => {
+  if (event.data && event.data.type === 'SKIP_WAITING') self.skipWaiting();
+});
