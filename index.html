@@ -26,7 +26,7 @@
   [data-theme="dark"] .btn-coffee{background:#facc15;border-color:#eab308;color:#000}
   .period-bar{max-width:600px;margin:8px auto 2px;padding:0 12px;display:flex;align-items:center;gap:8px}
   .period-label{font-size:11px;font-weight:700;color:var(--text-muted);white-space:nowrap}
-  .period-buttons{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch;padding:2px 0}
+  .period-buttons{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;padding:2px 0}
   .period-buttons::-webkit-scrollbar{display:none}
   .period-btn{padding:5px 12px;font-size:11px;font-weight:600;border-radius:20px;border:1px solid var(--glass-border-subtle);background:var(--glass-surface);color:var(--text-secondary);cursor:pointer;white-space:nowrap}
   .period-btn.active{background:var(--spx-orange);color:#fff;border-color:var(--spx-orange);font-weight:700;box-shadow:0 2px 8px rgba(255,87,34,0.3)}
@@ -450,7 +450,6 @@ async function getTesseractWorker(){
 }
 async function preloadTesseractWorker(){try{await getTesseractWorker();console.log('[OCR] Worker sẵn sàng')}catch(e){console.warn('[OCR] Preload thất bại:',e)}}
 
-// *** FIX: maxWidth = 2200 (không nén ảnh) ***
 function preprocessImageForOcr(dataUrl,opts={}){
   const{maxWidth=2200,yStartPct=0.02,yEndPct=0.98}=opts;
   return new Promise((resolve,reject)=>{
@@ -563,105 +562,184 @@ async function handleOcrImage(event){
   }
 }
 
-function parseAndFillFromOcr(rawText,detectedColorType){
-  const cleanText=rawText.replace(/,/g,'.');
-  const lines=cleanText.split('\n').map(l=>l.trim()).filter(l=>l.length>0);
-  let parsedDate='';
-  const dateMatch=cleanText.match(/(?:ngày|ngay)?\s*[-–:]?\s*(\d{1,2})[\/\-\.](\d{1,2})/i);
-  if(dateMatch){parsedDate=`${new Date().getFullYear()}-${dateMatch[2].padStart(2,'0')}-${dateMatch[1].padStart(2,'0')}`}
-  else{parsedDate=getTodayIso()}
-  const totalMatch=cleanText.match(/T[oổ]ng\s+([\d]+)\s+[đd][ơo]n/i);
-  const expectedTotal=totalMatch?parseInt(totalMatch[1],10):null;
-  const detectedType=detectedColorType||'del';
-  const weights={'0_2':0,'2_4':0,'4_6':0,'6_8':0,'8_10':0,'10_12':0,'12_15':0,'over_15':0};
-  const weightRanges=[
-    {key:'0_2',min:0,max:2},{key:'2_4',min:2,max:4},
-    {key:'4_6',min:4,max:6},{key:'6_8',min:6,max:8},
-    {key:'8_10',min:8,max:10},{key:'10_12',min:10,max:12},
-    {key:'12_15',min:12,max:15},{key:'over_15',min:15,max:999}
-  ];
-  function normalizeNumber(str){
-    return str.replace(/[lI|!;:]/g,'1').replace(/[oOQ]/g,'0').replace(/[sS]/g,'5').replace(/[zZ]/g,'2').replace(/[bB]/g,'8').replace(/[gG]/g,'9');
+function parseAndFillFromOcr(rawText, detectedColorType) {
+  const cleanText = rawText.replace(/,/g, '.');
+  const lines = cleanText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+
+  let parsedDate = '';
+  const dateMatch = cleanText.match(/(?:ngày|ngay)?\s*[-–:]?\s*(\d{1,2})[\/\-\.](\d{1,2})/i);
+  if (dateMatch) {
+    parsedDate = `${new Date().getFullYear()}-${dateMatch[2].padStart(2, '0')}-${dateMatch[1].padStart(2, '0')}`;
+  } else {
+    parsedDate = getTodayIso();
   }
-  const missingCountRows=[];
-  for(let i=0;i<lines.length;i++){
-    const line=lines[i];
-    const rangeMatch=line.match(/(\d+\.?\d*)\s*[-–—]\s*(\d+\.?\d*)/);
-    const overMatch=line.match(/[>≥]\s*15/);
-    let matchedKey=null;
-    if(rangeMatch){
-      const minVal=parseFloat(rangeMatch[1]);
-      const maxVal=parseFloat(rangeMatch[2]);
-      const found=weightRanges.find(r=>Math.abs(r.min-minVal)<=0.2&&Math.abs(r.max-Math.floor(maxVal))<=0.2);
-      if(found)matchedKey=found.key;
-    }else if(overMatch)matchedKey='over_15';
-    if(matchedKey){
-      let countFound=0;
-      for(let offset=-1;offset<=5;offset++){
-        const t=i+offset;
-        if(t>=0&&t<lines.length){
-          if(lines[t].match(/T[oổ]ng/i))continue;
-          const cm=lines[t].match(/([lI\d|!;:oOQsSzZbBgG]+)\s*(?:đơn|don|hàng|hang)/i);
-          if(cm){
-            const parsed=parseInt(normalizeNumber(cm[1]),10);
-            if(Number.isFinite(parsed)&&parsed>=0){countFound=parsed;break}
-          }
-        }
-      }
-      if(countFound===0){
-        for(let offset=0;offset<=5;offset++){
-          const t=i+offset;
-          if(t<lines.length){
-            const pm=lines[t].match(/^\s*([lI\d|!;:oOQsSzZbBgG]+)\s*$/);
-            if(pm){
-              const parsed=parseInt(normalizeNumber(pm[1]),10);
-              if(Number.isFinite(parsed)&&parsed>0){countFound=parsed;break}
+
+  const totalMatch = cleanText.match(/T[oổ]ng\s+([\d]+)\s+[đd][ơo]n/i);
+  const expectedTotal = totalMatch ? parseInt(totalMatch[1], 10) : null;
+
+  const detectedType = detectedColorType || 'del';
+  const weights = { '0_2': 0, '2_4': 0, '4_6': 0, '6_8': 0, '8_10': 0, '10_12': 0, '12_15': 0, 'over_15': 0 };
+
+  const weightRanges = [
+    { key: '0_2', min: 0, max: 2, label: WEIGHT_LABELS[0] },
+    { key: '2_4', min: 2, max: 4, label: WEIGHT_LABELS[1] },
+    { key: '4_6', min: 4, max: 6, label: WEIGHT_LABELS[2] },
+    { key: '6_8', min: 6, max: 8, label: WEIGHT_LABELS[3] },
+    { key: '8_10', min: 8, max: 10, label: WEIGHT_LABELS[4] },
+    { key: '10_12', min: 10, max: 12, label: WEIGHT_LABELS[5] },
+    { key: '12_15', min: 12, max: 15, label: WEIGHT_LABELS[6] },
+    { key: 'over_15', min: 15, max: 999, label: WEIGHT_LABELS[7] }
+  ];
+
+  function normalizeNumber(str) {
+    return str
+      .replace(/[lI|!;:]/g, '1')
+      .replace(/[oOQ]/g, '0')
+      .replace(/[sS]/g, '5')
+      .replace(/[zZ]/g, '2')
+      .replace(/[bB]/g, '8')
+      .replace(/[gG]/g, '9');
+  }
+
+  const missingCountRows = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const rangeMatch = line.match(/(\d+\.?\d*)\s*[-–—]\s*(\d+\.?\d*)/);
+    const overMatch = line.match(/[>≥]\s*15/);
+    let matchedKey = null;
+
+    if (rangeMatch) {
+      const minVal = parseFloat(rangeMatch[1]);
+      const maxVal = parseFloat(rangeMatch[2]);
+      const found = weightRanges.find(r => Math.abs(r.min - minVal) <= 0.2 && Math.abs(r.max - Math.floor(maxVal)) <= 0.2);
+      if (found) matchedKey = found.key;
+    } else if (overMatch) {
+      matchedKey = 'over_15';
+    }
+
+    if (matchedKey) {
+      let countFound = 0;
+
+      for (let offset = -1; offset <= 5; offset++) {
+        const t = i + offset;
+        if (t >= 0 && t < lines.length) {
+          if (lines[t].match(/T[oổ]ng/i)) continue;
+          const cm = lines[t].match(/([lI\d|!;:oOQsSzZbBgG]+)\s*(?:đơn|don|hàng|hang)/i);
+          if (cm) {
+            const parsed = parseInt(normalizeNumber(cm[1]), 10);
+            if (Number.isFinite(parsed) && parsed >= 0) {
+              countFound = parsed;
+              break;
             }
           }
         }
       }
-      if(countFound>0){weights[matchedKey]=countFound}
-      else{missingCountRows.push(matchedKey)}
+
+      if (countFound === 0) {
+        for (let offset = 0; offset <= 5; offset++) {
+          const t = i + offset;
+          if (t < lines.length) {
+            const pm = lines[t].match(/^\s*([lI\d|!;:oOQsSzZbBgG]+)\s*$/);
+            if (pm) {
+              const parsed = parseInt(normalizeNumber(pm[1]), 10);
+              if (Number.isFinite(parsed) && parsed > 0) {
+                countFound = parsed;
+                break;
+              }
+            }
+          }
+        }
+      }
+
+      if (countFound > 0) {
+        weights[matchedKey] = countFound;
+      } else {
+        missingCountRows.push(matchedKey);
+      }
     }
   }
-  let totalFound=Object.values(weights).reduce((a,b)=>a+b,0);
-  let autoFillInfo='';
-  if(expectedTotal!==null&&totalFound<expectedTotal){
-    const missing=expectedTotal-totalFound;
-    if(missingCountRows.length===1){
-      const targetKey=missingCountRows[0];
-      weights[targetKey]=missing;
-      totalFound+=missing;
-      const idx=weightRanges.findIndex(r=>r.key===targetKey);
-      const label=WEIGHT_LABELS[idx];
-      autoFillInfo=`\n\n✅ Đã tự động điền ${missing} đơn vào dải "${label}"`;
-    }else if(missingCountRows.length>=2&&missing===missingCountRows.length){
-      missingCountRows.forEach(k=>{weights[k]=1});
-      totalFound+=missing;
-      const labels=missingCountRows.map(k=>{
-        const idx=weightRanges.findIndex(r=>r.key===k);
-        return WEIGHT_LABELS[idx];
+
+  let totalFound = Object.values(weights).reduce((a, b) => a + b, 0);
+  let autoFillInfo = '';
+  let alertDetail = '';
+
+  if (expectedTotal !== null && totalFound !== expectedTotal) {
+    const diff = expectedTotal - totalFound;
+    const absDiff = Math.abs(diff);
+
+    if (missingCountRows.length === 1) {
+      const targetKey = missingCountRows[0];
+      weights[targetKey] = diff > 0 ? diff : 0;
+      totalFound = expectedTotal;
+      const row = weightRanges.find(r => r.key === targetKey);
+      autoFillInfo = `\n\n✅ Đã tự động điền ${diff} đơn vào dải "${row.label}"`;
+    }
+    else if (missingCountRows.length >= 2 && absDiff === missingCountRows.length && diff > 0) {
+      missingCountRows.forEach(k => { weights[k] = 1; });
+      totalFound = expectedTotal;
+      const labels = missingCountRows.map(k => weightRanges.find(r => r.key === k).label);
+      autoFillInfo = `\n\n✅ Đã tự động điền 1 đơn vào mỗi dải: ${labels.join(', ')}`;
+    }
+    else if (missingCountRows.length === 0 && absDiff <= 3) {
+      const rowsWithData = weightRanges
+        .map(r => ({ ...r, value: weights[r.key] }))
+        .filter(r => r.value > 0)
+        .sort((a, b) => b.value - a.value);
+
+      const biggest = rowsWithData[0];
+      const secondBiggest = rowsWithData[1];
+
+      const isSuspect =
+        biggest &&
+        biggest.value >= 50 &&
+        (!secondBiggest || biggest.value >= secondBiggest.value * 3);
+
+      if (isSuspect) {
+        const originalValue = biggest.value;
+        const newValue = originalValue + diff;
+
+        if (newValue > 0 && newValue < 100000) {
+          weights[biggest.key] = newValue;
+          totalFound = expectedTotal;
+          autoFillInfo = `\n\n✅ Nghi vấn OCR đọc nhầm dải "${biggest.label}".\nĐã tự sửa: ${originalValue} → ${newValue}`;
+        }
+      }
+    }
+
+    if (totalFound !== expectedTotal) {
+      alertDetail = '\n\n📋 Chi tiết đọc được:';
+      weightRanges.forEach(r => {
+        const v = weights[r.key];
+        if (v > 0 || missingCountRows.includes(r.key)) {
+          const flag = missingCountRows.includes(r.key) ? ' ⚠️' : '';
+          alertDetail += `\n  ${r.label}: ${v}${flag}`;
+        }
       });
-      autoFillInfo=`\n\n✅ Đã tự động điền 1 đơn vào mỗi dải: ${labels.join(', ')}`;
+      alertDetail += `\n\n→ Vui lòng kiểm tra các ô nhập và sửa thủ công.`;
     }
   }
+
   openAddModal();
-  document.getElementById('inputDate').value=parsedDate;
+  document.getElementById('inputDate').value = parsedDate;
   switchModalSubTab(detectedType);
-  const prefix=detectedType==='del'?'del_inp':detectedType==='pick'?'pick_inp':'ret_inp';
-  Object.keys(weights).forEach(k=>{
-    const el=document.getElementById(`${prefix}_${k}`);
-    if(el)el.value=weights[k];
+
+  const prefix = detectedType === 'del' ? 'del_inp' : detectedType === 'pick' ? 'pick_inp' : 'ret_inp';
+  Object.keys(weights).forEach(k => {
+    const el = document.getElementById(`${prefix}_${k}`);
+    if (el) el.value = weights[k];
   });
-  const typeText=detectedType==='del'?'Đã giao hàng':detectedType==='pick'?'Đã lấy':'Đã trả hàng';
-  let warningMsg='';
-  if(expectedTotal!==null&&totalFound!==expectedTotal){
-    const diff=expectedTotal-totalFound;
-    warningMsg=`\n\n⚠️ CẢNH BÁO: Ảnh ghi "${expectedTotal} đơn" nhưng chỉ đọc được ${totalFound} đơn.`;
-    warningMsg+=`\nLệch ${diff>0?'thiếu':'thừa'} ${Math.abs(diff)} đơn.`;
-    warningMsg+=`\n→ Vui lòng kiểm tra lại các ô nhập bên dưới.`;
+
+  const typeText = detectedType === 'del' ? 'Đã giao hàng' : detectedType === 'pick' ? 'Đã lấy' : 'Đã trả hàng';
+
+  let warningMsg = '';
+  if (expectedTotal !== null && totalFound !== expectedTotal) {
+    const diff = expectedTotal - totalFound;
+    warningMsg = `\n\n⚠️ CẢNH BÁO: Ảnh ghi "${expectedTotal} đơn" nhưng chỉ đọc được ${totalFound} đơn.`;
+    warningMsg += `\nLệch ${diff > 0 ? 'thiếu' : 'thừa'} ${Math.abs(diff)} đơn.`;
   }
-  alert(`Nhận diện thành công!\n- Tab: ${typeText}\n- Ngày: ${formatDateDisplay(parsedDate)}\n- Tổng đơn: ${totalFound}${autoFillInfo}${warningMsg}\n\nKiểm tra và bấm "Lưu dữ liệu".`);
+
+  alert(`Nhận diện thành công!\n- Tab: ${typeText}\n- Ngày: ${formatDateDisplay(parsedDate)}\n- Tổng đơn: ${totalFound}${autoFillInfo}${warningMsg}${alertDetail}\n\nKiểm tra và bấm "Lưu dữ liệu".`);
 }
 
 function initTheme(){const saved=localStorage.getItem('spx_theme')||'light';document.documentElement.setAttribute('data-theme',saved);updateThemeBtnUI(saved)}
