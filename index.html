@@ -47,7 +47,6 @@
   .overview-hero-top{display:flex;justify-content:space-between;align-items:flex-start}
   .overview-hero-label{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--glass-emerald-text)}
   .overview-hero-val{font-size:24px;font-weight:800;color:var(--glass-emerald-text);line-height:1.1;margin-top:3px}
-  .overview-sub-vnd{font-size:13.5px;font-weight:800;color:var(--spx-orange);margin-top:4px;cursor:pointer;display:inline-flex;align-items:center;gap:3px}
   .overview-hero-pill{background:var(--glass-surface);border:1px solid var(--glass-border);padding:4px 10px;border-radius:20px;font-size:11px;font-weight:700;box-shadow:var(--glass-shadow)}
   .rank-selector-box{background:var(--glass-subtle);border:1px solid var(--glass-border-subtle);border-radius:var(--radius-md);padding:8px 10px}
   .rank-selector-title{font-size:11px;font-weight:700;color:var(--text-secondary);margin-bottom:6px;display:flex;justify-content:space-between;align-items:center}
@@ -147,9 +146,17 @@
   .modal-section-card.card-pick{background:var(--glass-sky);border-color:var(--glass-sky-border)}
   .modal-section-card.card-ret{background:var(--glass-amber);border-color:var(--glass-amber-border)}
   .weights-horizontal-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+  .weight-input-item{position:relative}
   .weight-input-item label{display:block;font-size:10.5px;font-weight:600;color:var(--text-secondary);margin-bottom:2px}
   .input-control{width:100%;padding:7px 9px;border:1px solid var(--glass-border);border-radius:var(--radius-sm);font-size:15px;outline:none;background:var(--glass-subtle);color:var(--text-primary)}
   .input-control:focus{border-color:var(--spx-orange)}
+  .input-control.conf-high{border-left:4px solid #10b981 !important}
+  .input-control.conf-mid{border-left:4px solid #f59e0b !important;background:rgba(245,158,11,0.08) !important}
+  .input-control.conf-low{border-left:4px solid #ef4444 !important;background:rgba(239,68,68,0.08) !important}
+  .conf-badge{position:absolute;top:0;right:0;font-size:9px;font-weight:700;padding:1px 5px;border-radius:4px;transform:translateY(-2px);z-index:2}
+  .conf-badge.high{background:#10b981;color:#fff}
+  .conf-badge.mid{background:#f59e0b;color:#fff}
+  .conf-badge.low{background:#ef4444;color:#fff}
   .modal-box-foot{padding:10px 14px calc(10px + env(safe-area-inset-bottom,0px));border-top:1px solid var(--glass-border-subtle);background:var(--glass-subtle);display:flex;justify-content:flex-end;gap:8px}
   .coffee-modal-box{max-width:380px;border-radius:var(--radius-lg);margin:auto 12px}
   .coffee-account-box{background:var(--glass-subtle);border:1px solid var(--glass-border);border-radius:var(--radius-md);padding:10px 12px;display:flex;align-items:center;justify-content:space-between;margin-top:10px}
@@ -205,7 +212,6 @@
               <div>
                 <div class="overview-hero-label">🌟 Tổng Điểm Tích Lũy</div>
                 <div class="overview-hero-val" id="overallTotalPoints">0 Điểm</div>
-                <div class="overview-sub-vnd" id="overallVndVal" onclick="openSettingsModal()">≈ 0 VNĐ</div>
                 <div style="font-size:10.5px;color:var(--text-muted);margin-top:3px" id="rankBonusDetailText">Gốc: 0 · Thưởng: +0</div>
               </div>
               <div class="overview-hero-pill" id="overallTotalOrders">0 đơn</div>
@@ -525,15 +531,18 @@ async function ocrWithFineStrips(rawDataUrl, statusCallback) {
     { start: 0.60, end: 0.95 },
     { start: 0.75, end: 1.00 }
   ];
-  var allTexts = [];
+  var allResults = [];
   for (var i = 0; i < strips.length; i++) {
     var s = strips[i];
     if (statusCallback) statusCallback(i + 1, strips.length);
     var croppedUrl = await cropImageStrip(rawDataUrl, s.start, s.end, 2400);
     var result = await worker.recognize(croppedUrl);
-    allTexts.push(result.data.text);
+    allResults.push({
+      text: result.data.text || '',
+      words: result.data.words || []
+    });
   }
-  return allTexts;
+  return allResults;
 }
 
 // ==================== DETECT TAB ====================
@@ -605,13 +614,13 @@ async function handleOcrImage(event) {
     ]);
     statusTitle.innerText = 'Đang nhận diện 6 lớp...';
     statusDesc.innerText = 'Bắt đầu quét...';
-    const stripTexts = await ocrWithFineStrips(rawDataUrl, function(idx, total) {
+    const stripResults = await ocrWithFineStrips(rawDataUrl, function(idx, total) {
       statusTitle.innerText = 'Đang quét lớp ' + idx + '/' + total;
       statusDesc.innerText = 'Vùng ' + idx + ' - độ phân giải cao...';
     });
     overlay.style.display = 'none';
     const finalType = detectedColorType || 'del';
-    parseAndFillFromOcr(stripTexts, finalType);
+    parseAndFillFromOcr(stripResults, finalType);
   } catch (err) {
     console.error(err);
     overlay.style.display = 'none';
@@ -619,9 +628,12 @@ async function handleOcrImage(event) {
   }
 }
 
-// ==================== PARSE OCR (6-STRIP VOTING) ====================
-function parseAndFillFromOcr(stripTexts, detectedColorType) {
-  var allText = Array.isArray(stripTexts) ? stripTexts.join('\n') : stripTexts;
+// ==================== PARSE OCR + CONFIDENCE ====================
+function parseAndFillFromOcr(stripResults, detectedColorType) {
+  var stripTexts = stripResults.map(function(r) { return typeof r === 'string' ? r : r.text; });
+  var stripWords = stripResults.map(function(r) { return typeof r === 'string' ? [] : (r.words || []); });
+
+  var allText = stripTexts.join('\n');
   var cleanText = allText.replace(/,/g, '.');
 
   var parsedDate = '';
@@ -637,6 +649,7 @@ function parseAndFillFromOcr(stripTexts, detectedColorType) {
 
   var detectedType = detectedColorType || 'del';
   var weights = { '0_2': 0, '2_4': 0, '4_6': 0, '6_8': 0, '8_10': 0, '10_12': 0, '12_15': 0, 'over_15': 0 };
+  var confidences = {};
 
   var weightRanges = [
     { key: '0_2', min: 0, max: 2, label: WEIGHT_LABELS[0] },
@@ -653,10 +666,27 @@ function parseAndFillFromOcr(stripTexts, detectedColorType) {
     return str.replace(/[lI|!;:]/g, '1').replace(/[oOQ]/g, '0');
   }
 
+  function findWordConfidence(words, numberStr) {
+    var target = String(numberStr);
+    var bestConf = null;
+    for (var i = 0; i < words.length; i++) {
+      var w = words[i];
+      if (!w || !w.text) continue;
+      var cleanW = w.text.replace(/[^0-9]/g, '');
+      if (cleanW === target) {
+        if (bestConf === null || w.confidence > bestConf) {
+          bestConf = w.confidence;
+        }
+      }
+    }
+    return bestConf;
+  }
+
   var candidates = {};
 
   for (var sIdx = 0; sIdx < stripTexts.length; sIdx++) {
     var stripText = stripTexts[sIdx];
+    var stripWordList = stripWords[sIdx] || [];
     var lines = stripText.replace(/,/g, '.').split('\n').map(function(l) { return l.trim(); }).filter(function(l) { return l.length > 0; });
     var foundInStrip = {};
 
@@ -681,6 +711,8 @@ function parseAndFillFromOcr(stripTexts, detectedColorType) {
       }
 
       if (matchedKey && !foundInStrip[matchedKey]) {
+        var parsedVal = null;
+
         for (var offset = -1; offset <= 3; offset++) {
           var t = i + offset;
           if (t >= 0 && t < lines.length) {
@@ -688,31 +720,28 @@ function parseAndFillFromOcr(stripTexts, detectedColorType) {
             var cm = lines[t].match(/([lI\d|!;:]+)\s*(?:đơn|don|hàng|hang)/i);
             if (cm) {
               var parsed = parseInt(normalizeNumber(cm[1]), 10);
-              if (Number.isFinite(parsed) && parsed >= 0) {
-                if (!candidates[matchedKey]) candidates[matchedKey] = [];
-                candidates[matchedKey].push(parsed);
-                foundInStrip[matchedKey] = true;
-                break;
-              }
+              if (Number.isFinite(parsed) && parsed >= 0) { parsedVal = parsed; break; }
             }
           }
         }
-        if (!foundInStrip[matchedKey]) {
+        if (parsedVal === null) {
           for (var offset2 = 0; offset2 <= 3; offset2++) {
             var t2 = i + offset2;
             if (t2 < lines.length) {
               var pm = lines[t2].match(/^\s*([lI\d|!;:]+)\s*$/);
               if (pm) {
                 var parsed2 = parseInt(normalizeNumber(pm[1]), 10);
-                if (Number.isFinite(parsed2) && parsed2 > 0) {
-                  if (!candidates[matchedKey]) candidates[matchedKey] = [];
-                  candidates[matchedKey].push(parsed2);
-                  foundInStrip[matchedKey] = true;
-                  break;
-                }
+                if (Number.isFinite(parsed2) && parsed2 > 0) { parsedVal = parsed2; break; }
               }
             }
           }
+        }
+
+        if (parsedVal !== null) {
+          var conf = findWordConfidence(stripWordList, parsedVal);
+          if (!candidates[matchedKey]) candidates[matchedKey] = [];
+          candidates[matchedKey].push({ value: parsedVal, confidence: conf });
+          foundInStrip[matchedKey] = true;
         }
       }
     }
@@ -721,8 +750,8 @@ function parseAndFillFromOcr(stripTexts, detectedColorType) {
   Object.keys(candidates).forEach(function(k) {
     var vals = candidates[k];
     var counts = {};
-    vals.forEach(function(v) { counts[v] = (counts[v] || 0) + 1; });
-    var bestVal = vals[0], bestCount = 0;
+    vals.forEach(function(item) { counts[item.value] = (counts[item.value] || 0) + 1; });
+    var bestVal = vals[0].value, bestCount = 0;
     Object.keys(counts).forEach(function(v) {
       var c = counts[v];
       var n = parseInt(v);
@@ -732,6 +761,15 @@ function parseAndFillFromOcr(stripTexts, detectedColorType) {
       }
     });
     weights[k] = bestVal;
+
+    var confSum = 0, confCount = 0;
+    vals.forEach(function(item) {
+      if (item.value === bestVal && item.confidence !== null && item.confidence !== undefined) {
+        confSum += item.confidence;
+        confCount++;
+      }
+    });
+    confidences[k] = confCount > 0 ? (confSum / confCount) : null;
   });
 
   isOcrScan = true;
@@ -745,6 +783,8 @@ function parseAndFillFromOcr(stripTexts, detectedColorType) {
     if (el) el.value = weights[k];
   });
 
+  applyConfidenceHighlight(confidences, detectedType);
+
   var totalFound = Object.values(weights).reduce(function(a, b) { return a + b; }, 0);
   var typeText = detectedType === 'del' ? 'Đã giao hàng' : detectedType === 'pick' ? 'Đã lấy' : 'Đã trả hàng';
 
@@ -754,7 +794,67 @@ function parseAndFillFromOcr(stripTexts, detectedColorType) {
     warnMsg = '\n\n⚠️ Ảnh ghi: ' + expectedTotal + ' đơn · Đọc được: ' + totalFound + ' (lệch ' + Math.abs(diff) + ')';
   }
 
-  alert('✅ Quét xong!\n- Tab: ' + typeText + '\n- Ngày: ' + formatDateDisplay(parsedDate) + '\n- Tổng: ' + totalFound + ' đơn' + warnMsg + '\n\n📷 Kéo xuống xem ẢNH GỐC trong form để đối chiếu số trước khi Lưu.');
+  var lowCount = 0, midCount = 0, highCount = 0;
+  Object.keys(confidences).forEach(function(k) {
+    var c = confidences[k];
+    if (c === null || c === undefined) return;
+    if (c >= 85) highCount++;
+    else if (c >= 70) midCount++;
+    else lowCount++;
+  });
+
+  var confMsg = '';
+  if (lowCount > 0) confMsg = '\n\n🔴 ' + lowCount + ' dải cần kiểm tra (viền đỏ)';
+  else if (midCount > 0) confMsg = '\n\n🟡 ' + midCount + ' dải nên xem lại (viền vàng)';
+  else if (highCount > 0) confMsg = '\n\n🟢 Tất cả ' + highCount + ' dải đọc chắc chắn';
+
+  alert('✅ Quét xong!\n- Tab: ' + typeText + '\n- Ngày: ' + formatDateDisplay(parsedDate) + '\n- Tổng: ' + totalFound + ' đơn' + warnMsg + confMsg + '\n\n📷 Kéo xuống xem ẢNH GỐC để đối chiếu.');
+}
+
+function applyConfidenceHighlight(confMap, detectedType) {
+  var prefix = detectedType === 'del' ? 'del_inp' : detectedType === 'pick' ? 'pick_inp' : 'ret_inp';
+  var keys = ['0_2', '2_4', '4_6', '6_8', '8_10', '10_12', '12_15', 'over_15'];
+
+  keys.forEach(function(k) {
+    var input = document.getElementById(prefix + '_' + k);
+    if (!input) return;
+
+    input.classList.remove('conf-high', 'conf-mid', 'conf-low');
+    var parent = input.closest('.weight-input-item');
+    if (parent) {
+      var oldBadge = parent.querySelector('.conf-badge');
+      if (oldBadge) oldBadge.remove();
+    }
+
+    if (confMap[k] === undefined || confMap[k] === null) return;
+    var conf = confMap[k];
+    var level = conf >= 85 ? 'high' : conf >= 70 ? 'mid' : 'low';
+    input.classList.add('conf-' + level);
+
+    if (parent) {
+      var badge = document.createElement('span');
+      badge.className = 'conf-badge ' + level;
+      badge.textContent = Math.round(conf) + '%';
+      parent.appendChild(badge);
+    }
+  });
+}
+
+function clearAllConfidenceHighlights() {
+  var prefixes = ['del_inp', 'pick_inp', 'ret_inp'];
+  var keys = ['0_2', '2_4', '4_6', '6_8', '8_10', '10_12', '12_15', 'over_15'];
+  prefixes.forEach(function(pfx) {
+    keys.forEach(function(k) {
+      var input = document.getElementById(pfx + '_' + k);
+      if (!input) return;
+      input.classList.remove('conf-high', 'conf-mid', 'conf-low');
+      var parent = input.closest('.weight-input-item');
+      if (parent) {
+        var badge = parent.querySelector('.conf-badge');
+        if (badge) badge.remove();
+      }
+    });
+  });
 }
 
 // ==================== THEME / MODALS ====================
@@ -1014,7 +1114,6 @@ function updateAllViews() {
   const overallOrders = delGrandOrders + pickGrandOrders + retGrandOrders;
   const totalDaysCount = appData.delivery.length + appData.pickup.length + (appData.return || []).length;
   document.getElementById('overallTotalPoints').innerText = formatPts(finalTotalPoints);
-  document.getElementById('overallVndVal').innerText = `≈ ${formatVnd(finalTotalPoints * vndRate)} (1đ = ${vndRate.toLocaleString('vi-VN')}đ)`;
   document.getElementById('rankBonusDetailText').innerText = `Gốc: ${formatPts(rawBasePoints)} · Thưởng: +${formatPts(rankBonusPoints)}`;
   document.getElementById('overallTotalOrders').innerText = `${overallOrders.toLocaleString('vi-VN')} đơn`;
   if (overallOrders > 0) { const pDel = Math.round((delGrandOrders / overallOrders) * 100); const pPick = Math.round((pickGrandOrders / overallOrders) * 100); const pRet = 100 - pDel - pPick; document.getElementById('ratioBarDel').style.width = pDel + '%'; document.getElementById('ratioBarPick').style.width = pPick + '%'; document.getElementById('ratioBarRet').style.width = pRet + '%'; document.getElementById('ratioText').innerText = `${pDel}% G · ${pPick}% L · ${pRet}% H`; } else { document.getElementById('ratioBarDel').style.width = '33.3%'; document.getElementById('ratioBarPick').style.width = '33.3%'; document.getElementById('ratioBarRet').style.width = '33.4%'; document.getElementById('ratioText').innerText = '0% G · 0% L · 0% H'; }
@@ -1072,6 +1171,7 @@ function openAddModal() {
     document.getElementById(`ret_inp_${id}`).value = 0;
   });
   switchModalSubTab('del');
+  clearAllConfidenceHighlights();
   if (isOcrScan && lastOcrImageDataUrl) {
     document.getElementById('ocrPreviewImg').src = lastOcrImageDataUrl;
     document.getElementById('ocrPreviewBox').style.display = 'block';
@@ -1098,6 +1198,7 @@ function openEditModal(type, id) {
     if (inp) inp.value = item.weights[k] || 0;
   });
   document.getElementById('ocrPreviewBox').style.display = 'none';
+  clearAllConfidenceHighlights();
   document.getElementById('entryModal').classList.add('active');
 }
 
