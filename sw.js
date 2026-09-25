@@ -1,7 +1,7 @@
 // ================================================
 // SERVICE WORKER - SPX Tracker PWA v1.8
 // ================================================
-const CACHE_NAME = 'spx-tracker-v8';
+const CACHE_NAME = 'spx-tracker-v10';
 
 const PRECACHE_URLS = [
   './',
