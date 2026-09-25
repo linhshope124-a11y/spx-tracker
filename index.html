@@ -655,6 +655,9 @@ function parseAndFillFromOcr(stripTexts, detectedColorType) {
         var minVal = parseFloat(rangeMatch[1]);
         var maxVal = parseFloat(rangeMatch[2]);
         var found = weightRanges.find(function(r) {
+          if (r.key === 'over_15') {
+            return Math.abs(r.min - minVal) <= 0.2 && maxVal >= 50;
+          }
           return Math.abs(r.min - minVal) <= 0.2 && Math.abs(r.max - Math.floor(maxVal)) <= 0.2;
         });
         if (found) matchedKey = found.key;
