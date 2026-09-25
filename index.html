@@ -99,6 +99,7 @@
   .bar-fill.ret{background:#f59e0b}
   .suggestion-item{background:var(--glass-subtle);border:1px solid var(--glass-border-subtle);border-radius:var(--radius-md);padding:9px 11px;margin-bottom:7px;display:flex;justify-content:space-between;align-items:center;gap:8px}
   .sugg-left h4{font-size:11.5px;font-weight:700;display:flex;align-items:center;gap:4px}
+  .sugg-left p{font-size:10.5px;margin-top:2px;color:var(--text-muted)}
   .sugg-points{font-size:12px;font-weight:800;color:var(--glass-emerald-text);white-space:nowrap}
   .suggestion-item.sugg-del{background:var(--glass-violet);border-color:var(--glass-violet-border)}
   .suggestion-item.sugg-del .sugg-left h4,.suggestion-item.sugg-del .sugg-points{color:var(--glass-violet-text)}
@@ -110,9 +111,6 @@
   .sugg-type-del{background:var(--glass-violet);border-color:var(--glass-violet-border);color:var(--glass-violet-text)}
   .sugg-type-pick{background:var(--glass-sky);border-color:var(--glass-sky-border);color:var(--glass-sky-text)}
   .sugg-type-ret{background:var(--glass-amber);border-color:var(--glass-amber-border);color:var(--glass-amber-text)}
-  .sugg-hint{display:inline-flex;align-items:center;gap:5px;margin-top:6px;padding:5px 12px;border-radius:20px;font-size:12px;font-weight:700;background:linear-gradient(135deg,#ff5722,#f4511e);color:#fff;box-shadow:0 3px 10px rgba(255,87,34,0.4);letter-spacing:0.2px}
-  .sugg-hint b{font-size:15px;font-weight:900;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,0.15)}
-  .sugg-hint-icon{font-size:13px}
   .mobile-action-scroll{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;padding-bottom:2px}
   .mobile-action-scroll::-webkit-scrollbar{display:none}
   .mobile-action-scroll .btn{white-space:nowrap;flex:0 0 auto;font-size:11px;padding:5px 9px}
@@ -486,6 +484,7 @@ async function preloadTesseractWorker() {
   catch (e) { console.warn('[OCR] Preload thất bại:', e); }
 }
 
+// ==================== 6-STRIP OCR ====================
 async function cropImageStrip(dataUrl, yStartPct, yEndPct, maxWidth) {
   maxWidth = maxWidth || 2400;
   return new Promise(function(resolve, reject) {
@@ -546,6 +545,7 @@ async function ocrWithFineStrips(rawDataUrl, statusCallback) {
   return allResults;
 }
 
+// ==================== DETECT TAB ====================
 function detectActiveTabByOrangeLine(imageSource) {
   return new Promise(resolve => {
     const img = new Image();
@@ -589,6 +589,7 @@ function detectActiveTabByOrangeLine(imageSource) {
   });
 }
 
+// ==================== HANDLE OCR ====================
 async function handleOcrImage(event) {
   const file = event.target.files[0];
   if (!file) return;
@@ -627,11 +628,14 @@ async function handleOcrImage(event) {
   }
 }
 
+// ==================== PARSE OCR + CONFIDENCE ====================
 function parseAndFillFromOcr(stripResults, detectedColorType) {
   var stripTexts = stripResults.map(function(r) { return typeof r === 'string' ? r : r.text; });
   var stripWords = stripResults.map(function(r) { return typeof r === 'string' ? [] : (r.words || []); });
+
   var allText = stripTexts.join('\n');
   var cleanText = allText.replace(/,/g, '.');
+
   var parsedDate = '';
   var dateMatch = cleanText.match(/(?:ngày|ngay)?\s*[-–:]?\s*(\d{1,2})[\/\-\.](\d{1,2})/i);
   if (dateMatch) {
@@ -639,11 +643,14 @@ function parseAndFillFromOcr(stripResults, detectedColorType) {
   } else {
     parsedDate = getTodayIso();
   }
+
   var totalMatch = cleanText.match(/T[oổ]ng\s+([\d]+)\s+[đd][ơo]n/i);
   var expectedTotal = totalMatch ? parseInt(totalMatch[1], 10) : null;
+
   var detectedType = detectedColorType || 'del';
   var weights = { '0_2': 0, '2_4': 0, '4_6': 0, '6_8': 0, '8_10': 0, '10_12': 0, '12_15': 0, 'over_15': 0 };
   var confidences = {};
+
   var weightRanges = [
     { key: '0_2', min: 0, max: 2, label: WEIGHT_LABELS[0] },
     { key: '2_4', min: 2, max: 4, label: WEIGHT_LABELS[1] },
@@ -654,9 +661,11 @@ function parseAndFillFromOcr(stripResults, detectedColorType) {
     { key: '12_15', min: 12, max: 15, label: WEIGHT_LABELS[6] },
     { key: 'over_15', min: 15, max: 999, label: WEIGHT_LABELS[7] }
   ];
+
   function normalizeNumber(str) {
     return str.replace(/[lI|!;:]/g, '1').replace(/[oOQ]/g, '0');
   }
+
   function findWordConfidence(words, numberStr) {
     var target = String(numberStr);
     var bestConf = null;
@@ -665,35 +674,45 @@ function parseAndFillFromOcr(stripResults, detectedColorType) {
       if (!w || !w.text) continue;
       var cleanW = w.text.replace(/[^0-9]/g, '');
       if (cleanW === target) {
-        if (bestConf === null || w.confidence > bestConf) bestConf = w.confidence;
+        if (bestConf === null || w.confidence > bestConf) {
+          bestConf = w.confidence;
+        }
       }
     }
     return bestConf;
   }
+
   var candidates = {};
+
   for (var sIdx = 0; sIdx < stripTexts.length; sIdx++) {
     var stripText = stripTexts[sIdx];
     var stripWordList = stripWords[sIdx] || [];
     var lines = stripText.replace(/,/g, '.').split('\n').map(function(l) { return l.trim(); }).filter(function(l) { return l.length > 0; });
     var foundInStrip = {};
+
     for (var i = 0; i < lines.length; i++) {
       var line = lines[i];
       var rangeMatch = line.match(/(\d+\.?\d*)\s*[-–—]\s*(\d+\.?\d*)/);
       var overMatch = line.match(/[>≥]\s*15/);
       var matchedKey = null;
+
       if (rangeMatch) {
         var minVal = parseFloat(rangeMatch[1]);
         var maxVal = parseFloat(rangeMatch[2]);
         var found = weightRanges.find(function(r) {
-          if (r.key === 'over_15') return Math.abs(r.min - minVal) <= 0.2 && maxVal >= 50;
+          if (r.key === 'over_15') {
+            return Math.abs(r.min - minVal) <= 0.2 && maxVal >= 50;
+          }
           return Math.abs(r.min - minVal) <= 0.2 && Math.abs(r.max - Math.floor(maxVal)) <= 0.2;
         });
         if (found) matchedKey = found.key;
       } else if (overMatch) {
         matchedKey = 'over_15';
       }
+
       if (matchedKey && !foundInStrip[matchedKey]) {
         var parsedVal = null;
+
         for (var offset = -1; offset <= 3; offset++) {
           var t = i + offset;
           if (t >= 0 && t < lines.length) {
@@ -717,6 +736,7 @@ function parseAndFillFromOcr(stripResults, detectedColorType) {
             }
           }
         }
+
         if (parsedVal !== null) {
           var conf = findWordConfidence(stripWordList, parsedVal);
           if (!candidates[matchedKey]) candidates[matchedKey] = [];
@@ -726,6 +746,7 @@ function parseAndFillFromOcr(stripResults, detectedColorType) {
       }
     }
   }
+
   Object.keys(candidates).forEach(function(k) {
     var vals = candidates[k];
     var counts = {};
@@ -734,9 +755,13 @@ function parseAndFillFromOcr(stripResults, detectedColorType) {
     Object.keys(counts).forEach(function(v) {
       var c = counts[v];
       var n = parseInt(v);
-      if (c > bestCount || (c === bestCount && n > bestVal)) { bestVal = n; bestCount = c; }
+      if (c > bestCount || (c === bestCount && n > bestVal)) {
+        bestVal = n;
+        bestCount = c;
+      }
     });
     weights[k] = bestVal;
+
     var confSum = 0, confCount = 0;
     vals.forEach(function(item) {
       if (item.value === bestVal && item.confidence !== null && item.confidence !== undefined) {
@@ -746,23 +771,29 @@ function parseAndFillFromOcr(stripResults, detectedColorType) {
     });
     confidences[k] = confCount > 0 ? (confSum / confCount) : null;
   });
+
   isOcrScan = true;
   openAddModal();
   document.getElementById('inputDate').value = parsedDate;
   switchModalSubTab(detectedType);
+
   var prefix = detectedType === 'del' ? 'del_inp' : detectedType === 'pick' ? 'pick_inp' : 'ret_inp';
   Object.keys(weights).forEach(function(k) {
     var el = document.getElementById(prefix + '_' + k);
     if (el) el.value = weights[k];
   });
+
   applyConfidenceHighlight(confidences, detectedType);
+
   var totalFound = Object.values(weights).reduce(function(a, b) { return a + b; }, 0);
   var typeText = detectedType === 'del' ? 'Đã giao hàng' : detectedType === 'pick' ? 'Đã lấy' : 'Đã trả hàng';
+
   var warnMsg = '';
   if (expectedTotal !== null && totalFound !== expectedTotal) {
     var diff = expectedTotal - totalFound;
     warnMsg = '\n\n⚠️ Ảnh ghi: ' + expectedTotal + ' đơn · Đọc được: ' + totalFound + ' (lệch ' + Math.abs(diff) + ')';
   }
+
   var lowCount = 0, midCount = 0, highCount = 0;
   Object.keys(confidences).forEach(function(k) {
     var c = confidences[k];
@@ -771,26 +802,35 @@ function parseAndFillFromOcr(stripResults, detectedColorType) {
     else if (c >= 70) midCount++;
     else lowCount++;
   });
+
   var confMsg = '';
   if (lowCount > 0) confMsg = '\n\n🔴 ' + lowCount + ' dải cần kiểm tra (viền đỏ)';
   else if (midCount > 0) confMsg = '\n\n🟡 ' + midCount + ' dải nên xem lại (viền vàng)';
   else if (highCount > 0) confMsg = '\n\n🟢 Tất cả ' + highCount + ' dải đọc chắc chắn';
+
   alert('✅ Quét xong!\n- Tab: ' + typeText + '\n- Ngày: ' + formatDateDisplay(parsedDate) + '\n- Tổng: ' + totalFound + ' đơn' + warnMsg + confMsg + '\n\n📷 Kéo xuống xem ẢNH GỐC để đối chiếu.');
 }
 
 function applyConfidenceHighlight(confMap, detectedType) {
   var prefix = detectedType === 'del' ? 'del_inp' : detectedType === 'pick' ? 'pick_inp' : 'ret_inp';
   var keys = ['0_2', '2_4', '4_6', '6_8', '8_10', '10_12', '12_15', 'over_15'];
+
   keys.forEach(function(k) {
     var input = document.getElementById(prefix + '_' + k);
     if (!input) return;
+
     input.classList.remove('conf-high', 'conf-mid', 'conf-low');
     var parent = input.closest('.weight-input-item');
-    if (parent) { var oldBadge = parent.querySelector('.conf-badge'); if (oldBadge) oldBadge.remove(); }
+    if (parent) {
+      var oldBadge = parent.querySelector('.conf-badge');
+      if (oldBadge) oldBadge.remove();
+    }
+
     if (confMap[k] === undefined || confMap[k] === null) return;
     var conf = confMap[k];
     var level = conf >= 85 ? 'high' : conf >= 70 ? 'mid' : 'low';
     input.classList.add('conf-' + level);
+
     if (parent) {
       var badge = document.createElement('span');
       badge.className = 'conf-badge ' + level;
@@ -809,11 +849,15 @@ function clearAllConfidenceHighlights() {
       if (!input) return;
       input.classList.remove('conf-high', 'conf-mid', 'conf-low');
       var parent = input.closest('.weight-input-item');
-      if (parent) { var badge = parent.querySelector('.conf-badge'); if (badge) badge.remove(); }
+      if (parent) {
+        var badge = parent.querySelector('.conf-badge');
+        if (badge) badge.remove();
+      }
     });
   });
 }
 
+// ==================== THEME / MODALS ====================
 function initTheme() { const saved = localStorage.getItem('spx_theme') || 'light'; document.documentElement.setAttribute('data-theme', saved); updateThemeBtnUI(saved); }
 function toggleTheme() { const cur = document.documentElement.getAttribute('data-theme') || 'light'; const next = cur === 'light' ? 'dark' : 'light'; document.documentElement.setAttribute('data-theme', next); localStorage.setItem('spx_theme', next); updateThemeBtnUI(next); }
 function updateThemeBtnUI(t) { document.getElementById('themeIcon').innerText = t === 'dark' ? '☀️' : '🌙'; }
@@ -828,12 +872,15 @@ function copyPhoneNumber() {
   else fallback();
 }
 
+// ==================== HELPERS ====================
 function generateId() { return Date.now() * 1000 + Math.floor(Math.random() * 1000); }
 function sanitizeInt(v) { const n = parseInt(v, 10); return Number.isFinite(n) && n > 0 ? n : 0; }
 function formatPts(n) { return new Intl.NumberFormat('vi-VN').format(Math.round(n)) + ' Điểm'; }
+function formatVnd(n) { return new Intl.NumberFormat('vi-VN').format(Math.round(n)) + ' VNĐ'; }
 function getTodayIso() { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }
 function formatDateDisplay(iso) { if (!iso) return ''; const p = iso.split('-'); return p.length === 3 ? `${p[2]}/${p[1]}/${p[0]}` : iso; }
 
+// ==================== DATA TABLES ====================
 const TABLE_5_DATA = [
   { min: 1, max: 15, range: "1 - 15", pts: [25, 60, 60, 60, 70, 90, 110, 120] },
   { min: 15, max: 30, range: "15 - 30", pts: [50, 110, 120, 120, 150, 180, 220, 240] },
@@ -1000,13 +1047,21 @@ let currentOverviewFilter = 'all';
 let currentPeriodFilter = 'all';
 
 function attachAutoClearInputs() { document.querySelectorAll('.auto-clear').forEach(input => { input.addEventListener('focus', function() { if (this.value === '0') this.value = ''; }); input.addEventListener('blur', function() { if (this.value.trim() === '') this.value = '0'; }); }); }
+
 function switchMainTab(tabId, el) { currentActiveTab = tabId; document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active')); el.classList.add('active'); document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active')); document.getElementById(`tab-${tabId}`).classList.add('active'); if (tabId === 'history') renderHistory(); }
+
 function switchModalSubTab(tabKey) { ['del', 'pick', 'ret'].forEach(k => { document.getElementById(`subtab-btn-${k}`).classList.remove('active'); document.getElementById(`pane-${k}`).style.display = 'none'; }); document.getElementById(`subtab-btn-${tabKey}`).classList.add('active'); document.getElementById(`pane-${tabKey}`).style.display = 'block'; }
+
 function setOverviewFilter(filter, el) { currentOverviewFilter = filter; const bar = el.closest('.history-filter-bar'); if (bar) bar.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active')); el.classList.add('active'); document.querySelectorAll('#overviewMilestoneList .suggestion-item').forEach(item => { if (filter === 'all') item.style.display = 'flex'; else if (filter === 'del') item.style.display = item.classList.contains('sugg-del') ? 'flex' : 'none'; else if (filter === 'pick') item.style.display = item.classList.contains('sugg-pick') ? 'flex' : 'none'; else if (filter === 'ret') item.style.display = item.classList.contains('sugg-ret') ? 'flex' : 'none'; }); }
+
 function setPeriodFilter(period, el) { currentPeriodFilter = period; el.parentElement.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active')); el.classList.add('active'); updateAllViews(); }
+
 function setRankTier(rankKey, bonusPct, el) { currentRankBonus = bonusPct; currentRankName = rankKey; localStorage.setItem('spx_rank_bonus', bonusPct); localStorage.setItem('spx_rank_name', rankKey); el.parentElement.querySelectorAll('.rank-pill').forEach(p => p.classList.remove('active')); el.classList.add('active'); document.getElementById('currentBonusPctLabel').innerText = `+${Math.round(bonusPct * 100)}%`; updateAllViews(); }
+
 function initRankUI() { document.querySelectorAll('.rank-pill').forEach(pill => { pill.classList.remove('active'); const attr = pill.getAttribute('onclick') || ''; if (attr.includes(`'${currentRankName}'`)) pill.classList.add('active'); }); document.getElementById('currentBonusPctLabel').innerText = `+${Math.round(currentRankBonus * 100)}%`; }
+
 function isDateInCurrentPeriod(isoDate) { if (currentPeriodFilter === 'all') return true; if (!isoDate) return false; const now = new Date(); const [y, m, d] = isoDate.split('-').map(Number); const curY = now.getFullYear(), curM = now.getMonth() + 1, curD = now.getDate(); if (currentPeriodFilter === 'today') return y === curY && m === curM && d === curD; if (currentPeriodFilter === 'this_month') return y === curY && m === curM; if (currentPeriodFilter === 'last_month') { let lm = curM - 1, ly = curY; if (lm === 0) { lm = 12; ly--; } return y === ly && m === lm; } return true; }
+
 function lookupTier(orders, colIdx, tableData) { if (orders === 0) { return { matched: { range: "-", pt: 0, maxA: 0 }, next: { range: tableData[0].range, min: tableData[0].min, pt: tableData[0].pts[colIdx] }, pct: 0 }; } for (let i = 0; i < tableData.length; i++) { const row = tableData[i]; if (orders >= row.min && orders < row.max) { const nextRow = tableData[i + 1] || null; const span = row.max - row.min; const pct = Math.min(100, Math.round(((orders - row.min) / span) * 100)); return { matched: { range: row.range, pt: row.pts[colIdx], maxA: row.max }, next: nextRow ? { range: nextRow.range, min: nextRow.min, pt: nextRow.pts[colIdx] } : null, pct: pct }; } } const lastRow = tableData[tableData.length - 1]; return { matched: { range: lastRow.range, pt: lastRow.pts[colIdx], maxA: lastRow.max }, next: null, pct: 100 }; }
 
 function updateAllViews() {
@@ -1036,18 +1091,18 @@ function updateAllViews() {
     const dTr = document.createElement('tr');
     dTr.innerHTML = `<td class="weight-name">${WEIGHT_LABELS[colIdx]}</td><td class="order-num delivery-num ${dOrders === 0 ? 'zero' : ''}">${dOrders.toLocaleString('vi-VN')}<div class="bar-container"><div class="bar-fill del" style="width:${dTier.pct}%"></div></div></td><td style="color:var(--text-muted);font-size:10.5px">${dTier.matched.range}</td><td class="points-badge ${dOrders === 0 ? 'zero' : ''}">${formatPts(dTier.matched.pt)}</td>`;
     delTbody.appendChild(dTr);
-    if (dOrders > 0 && dTier.next && isFinite(dTier.matched.maxA)) { const need = dTier.matched.maxA - dOrders; delSuggBuf.push(`<div class="suggestion-item"><div class="sugg-left"><h4>${WEIGHT_LABELS[colIdx]} · ${dOrders.toLocaleString('vi-VN')} đơn (${dTier.matched.range})</h4><div class="sugg-hint"><span class="sugg-hint-icon">🚀</span>Thêm <b>+${need.toLocaleString('vi-VN')}</b> đơn → ${dTier.next.range}</div></div><div class="sugg-points">+${formatPts(dTier.next.pt - dTier.matched.pt)}</div></div>`); }
+    if (dOrders > 0 && dTier.next && isFinite(dTier.matched.maxA)) { const need = dTier.matched.maxA - dOrders; delSuggBuf.push(`<div class="suggestion-item"><div class="sugg-left"><h4>${WEIGHT_LABELS[colIdx]} · ${dOrders.toLocaleString('vi-VN')} đơn (${dTier.matched.range})</h4><p>Cần thêm <b>+${need.toLocaleString('vi-VN')}</b> đơn để đạt mốc ${dTier.next.range}</p></div><div class="sugg-points">+${formatPts(dTier.next.pt - dTier.matched.pt)}</div></div>`); }
     const pTr = document.createElement('tr');
     pTr.innerHTML = `<td class="weight-name">${WEIGHT_LABELS[colIdx]}</td><td class="order-num pickup-num ${pOrders === 0 ? 'zero' : ''}">${pOrders.toLocaleString('vi-VN')}<div class="bar-container"><div class="bar-fill pick" style="width:${pTier.pct}%"></div></div></td><td style="color:var(--text-muted);font-size:10.5px">${pTier.matched.range}</td><td class="points-badge ${pOrders === 0 ? 'zero' : ''}">${formatPts(pTier.matched.pt)}</td>`;
     pickTbody.appendChild(pTr);
-    if (pOrders > 0 && pTier.next && isFinite(pTier.matched.maxA)) { const need = pTier.matched.maxA - pOrders; pickSuggBuf.push(`<div class="suggestion-item"><div class="sugg-left"><h4>${WEIGHT_LABELS[colIdx]} · ${pOrders.toLocaleString('vi-VN')} đơn (${pTier.matched.range})</h4><div class="sugg-hint"><span class="sugg-hint-icon">🚀</span>Thêm <b>+${need.toLocaleString('vi-VN')}</b> đơn → ${pTier.next.range}</div></div><div class="sugg-points">+${formatPts(pTier.next.pt - pTier.matched.pt)}</div></div>`); }
+    if (pOrders > 0 && pTier.next && isFinite(pTier.matched.maxA)) { const need = pTier.matched.maxA - pOrders; pickSuggBuf.push(`<div class="suggestion-item"><div class="sugg-left"><h4>${WEIGHT_LABELS[colIdx]} · ${pOrders.toLocaleString('vi-VN')} đơn (${pTier.matched.range})</h4><p>Cần thêm <b>+${need.toLocaleString('vi-VN')}</b> đơn để đạt mốc ${pTier.next.range}</p></div><div class="sugg-points">+${formatPts(pTier.next.pt - pTier.matched.pt)}</div></div>`); }
     const rTr = document.createElement('tr');
     rTr.innerHTML = `<td class="weight-name">${WEIGHT_LABELS[colIdx]}</td><td class="order-num return-num ${rOrders === 0 ? 'zero' : ''}">${rOrders.toLocaleString('vi-VN')}<div class="bar-container"><div class="bar-fill ret" style="width:${rTier.pct}%"></div></div></td><td style="color:var(--text-muted);font-size:10.5px">${rTier.matched.range}</td><td class="points-badge ${rOrders === 0 ? 'zero' : ''}">${formatPts(rTier.matched.pt)}</td>`;
     retTbody.appendChild(rTr);
-    if (rOrders > 0 && rTier.next && isFinite(rTier.matched.maxA)) { const need = rTier.matched.maxA - rOrders; retSuggBuf.push(`<div class="suggestion-item"><div class="sugg-left"><h4>${WEIGHT_LABELS[colIdx]} · ${rOrders.toLocaleString('vi-VN')} đơn (${rTier.matched.range})</h4><div class="sugg-hint"><span class="sugg-hint-icon">🚀</span>Thêm <b>+${need.toLocaleString('vi-VN')}</b> đơn → ${rTier.next.range}</div></div><div class="sugg-points">+${formatPts(rTier.next.pt - rTier.matched.pt)}</div></div>`); }
-    if (dOrders > 0 && dTier.next && isFinite(dTier.matched.maxA)) { const need = dTier.matched.maxA - dOrders; ovSuggBuf.push(`<div class="suggestion-item sugg-del"><div class="sugg-left"><h4><span class="sugg-type-badge sugg-type-del">G</span> ${WEIGHT_LABELS[colIdx]} · ${dOrders.toLocaleString('vi-VN')} đơn</h4><div class="sugg-hint"><span class="sugg-hint-icon">🚀</span>Thêm <b>+${need.toLocaleString('vi-VN')}</b> đơn → ${dTier.next.range}</div></div><div class="sugg-points">+${formatPts(dTier.next.pt - dTier.matched.pt)}</div></div>`); }
-    if (pOrders > 0 && pTier.next && isFinite(pTier.matched.maxA)) { const need = pTier.matched.maxA - pOrders; ovSuggBuf.push(`<div class="suggestion-item sugg-pick"><div class="sugg-left"><h4><span class="sugg-type-badge sugg-type-pick">L</span> ${WEIGHT_LABELS[colIdx]} · ${pOrders.toLocaleString('vi-VN')} đơn</h4><div class="sugg-hint"><span class="sugg-hint-icon">🚀</span>Thêm <b>+${need.toLocaleString('vi-VN')}</b> đơn → ${pTier.next.range}</div></div><div class="sugg-points">+${formatPts(pTier.next.pt - pTier.matched.pt)}</div></div>`); }
-    if (rOrders > 0 && rTier.next && isFinite(rTier.matched.maxA)) { const need = rTier.matched.maxA - rOrders; ovSuggBuf.push(`<div class="suggestion-item sugg-ret"><div class="sugg-left"><h4><span class="sugg-type-badge sugg-type-ret">H</span> ${WEIGHT_LABELS[colIdx]} · ${rOrders.toLocaleString('vi-VN')} đơn</h4><div class="sugg-hint"><span class="sugg-hint-icon">🚀</span>Thêm <b>+${need.toLocaleString('vi-VN')}</b> đơn → ${rTier.next.range}</div></div><div class="sugg-points">+${formatPts(rTier.next.pt - rTier.matched.pt)}</div></div>`); }
+    if (rOrders > 0 && rTier.next && isFinite(rTier.matched.maxA)) { const need = rTier.matched.maxA - rOrders; retSuggBuf.push(`<div class="suggestion-item"><div class="sugg-left"><h4>${WEIGHT_LABELS[colIdx]} · ${rOrders.toLocaleString('vi-VN')} đơn (${rTier.matched.range})</h4><p>Cần thêm <b>+${need.toLocaleString('vi-VN')}</b> đơn để đạt mốc ${rTier.next.range}</p></div><div class="sugg-points">+${formatPts(rTier.next.pt - rTier.matched.pt)}</div></div>`); }
+    if (dOrders > 0 && dTier.next && isFinite(dTier.matched.maxA)) { const need = dTier.matched.maxA - dOrders; ovSuggBuf.push(`<div class="suggestion-item sugg-del"><div class="sugg-left"><h4><span class="sugg-type-badge sugg-type-del">G</span> ${WEIGHT_LABELS[colIdx]} · ${dOrders.toLocaleString('vi-VN')} đơn</h4><p>Thêm <b>+${need.toLocaleString('vi-VN')}</b> đơn đạt ${dTier.next.range}</p></div><div class="sugg-points">+${formatPts(dTier.next.pt - dTier.matched.pt)}</div></div>`); }
+    if (pOrders > 0 && pTier.next && isFinite(pTier.matched.maxA)) { const need = pTier.matched.maxA - pOrders; ovSuggBuf.push(`<div class="suggestion-item sugg-pick"><div class="sugg-left"><h4><span class="sugg-type-badge sugg-type-pick">L</span> ${WEIGHT_LABELS[colIdx]} · ${pOrders.toLocaleString('vi-VN')} đơn</h4><p>Thêm <b>+${need.toLocaleString('vi-VN')}</b> đơn đạt ${pTier.next.range}</p></div><div class="sugg-points">+${formatPts(pTier.next.pt - pTier.matched.pt)}</div></div>`); }
+    if (rOrders > 0 && rTier.next && isFinite(rTier.matched.maxA)) { const need = rTier.matched.maxA - rOrders; ovSuggBuf.push(`<div class="suggestion-item sugg-ret"><div class="sugg-left"><h4><span class="sugg-type-badge sugg-type-ret">H</span> ${WEIGHT_LABELS[colIdx]} · ${rOrders.toLocaleString('vi-VN')} đơn</h4><p>Thêm <b>+${need.toLocaleString('vi-VN')}</b> đơn đạt ${rTier.next.range}</p></div><div class="sugg-points">+${formatPts(rTier.next.pt - rTier.matched.pt)}</div></div>`); }
   }
   delSuggBox.innerHTML = delSuggBuf.join('') || (delGrandOrders === 0 ? '<div style="font-size:11.5px;color:var(--text-muted);text-align:center;padding:14px">Chưa có dữ liệu đơn giao kỳ này.</div>' : '');
   pickSuggBox.innerHTML = pickSuggBuf.join('') || (pickGrandOrders === 0 ? '<div style="font-size:11.5px;color:var(--text-muted);text-align:center;padding:14px">Chưa có dữ liệu đơn lấy kỳ này.</div>' : '');
@@ -1081,6 +1136,7 @@ function updateAllViews() {
 }
 
 function setHistFilter(filterType, btn) { currentHistFilter = filterType; const bar = btn.closest('.history-filter-bar'); if (bar) bar.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active')); btn.classList.add('active'); renderHistory(); }
+
 function renderHistory() {
   const container = document.getElementById('historyEntries'); container.innerHTML = '';
   let list = [];
@@ -1103,12 +1159,63 @@ function renderHistory() {
   });
 }
 
-function openAddModal() { document.getElementById('modalTitle').innerText = 'Nhập Sản Lượng Ngày'; document.getElementById('editEntryId').value = ''; document.getElementById('editEntryType').value = ''; document.getElementById('modalSubTabGroup').style.display = 'flex'; document.getElementById('inputDate').value = getTodayIso(); ['0_2', '2_4', '4_6', '6_8', '8_10', '10_12', '12_15', 'over_15'].forEach(id => { document.getElementById(`del_inp_${id}`).value = 0; document.getElementById(`pick_inp_${id}`).value = 0; document.getElementById(`ret_inp_${id}`).value = 0; }); switchModalSubTab('del'); clearAllConfidenceHighlights(); if (isOcrScan && lastOcrImageDataUrl) { document.getElementById('ocrPreviewImg').src = lastOcrImageDataUrl; document.getElementById('ocrPreviewBox').style.display = 'block'; isOcrScan = false; } else { document.getElementById('ocrPreviewBox').style.display = 'none'; } document.getElementById('entryModal').classList.add('active'); }
-function openEditModal(type, id) { const item = (appData[type] || []).find(r => r.id === id); if (!item) return; document.getElementById('modalTitle').innerText = `Sửa (${type === 'delivery' ? 'Giao' : type === 'pickup' ? 'Lấy' : 'Hoàn'})`; document.getElementById('editEntryId').value = id; document.getElementById('editEntryType').value = type; document.getElementById('inputDate').value = item.date; const prefix = type === 'delivery' ? 'del_inp' : type === 'pickup' ? 'pick_inp' : 'ret_inp'; const subTab = type === 'delivery' ? 'del' : type === 'pickup' ? 'pick' : 'ret'; document.getElementById('modalSubTabGroup').style.display = 'none'; switchModalSubTab(subTab); WEIGHT_KEYS.forEach(k => { const inp = document.getElementById(`${prefix}_${k.replace('w', '')}`); if (inp) inp.value = item.weights[k] || 0; }); document.getElementById('ocrPreviewBox').style.display = 'none'; clearAllConfidenceHighlights(); document.getElementById('entryModal').classList.add('active'); }
+function openAddModal() {
+  document.getElementById('modalTitle').innerText = 'Nhập Sản Lượng Ngày';
+  document.getElementById('editEntryId').value = '';
+  document.getElementById('editEntryType').value = '';
+  document.getElementById('modalSubTabGroup').style.display = 'flex';
+  document.getElementById('inputDate').value = getTodayIso();
+  ['0_2', '2_4', '4_6', '6_8', '8_10', '10_12', '12_15', 'over_15'].forEach(id => {
+    document.getElementById(`del_inp_${id}`).value = 0;
+    document.getElementById(`pick_inp_${id}`).value = 0;
+    document.getElementById(`ret_inp_${id}`).value = 0;
+  });
+  switchModalSubTab('del');
+  clearAllConfidenceHighlights();
+  if (isOcrScan && lastOcrImageDataUrl) {
+    document.getElementById('ocrPreviewImg').src = lastOcrImageDataUrl;
+    document.getElementById('ocrPreviewBox').style.display = 'block';
+    isOcrScan = false;
+  } else {
+    document.getElementById('ocrPreviewBox').style.display = 'none';
+  }
+  document.getElementById('entryModal').classList.add('active');
+}
+
+function openEditModal(type, id) {
+  const item = (appData[type] || []).find(r => r.id === id);
+  if (!item) return;
+  document.getElementById('modalTitle').innerText = `Sửa (${type === 'delivery' ? 'Giao' : type === 'pickup' ? 'Lấy' : 'Hoàn'})`;
+  document.getElementById('editEntryId').value = id;
+  document.getElementById('editEntryType').value = type;
+  document.getElementById('inputDate').value = item.date;
+  const prefix = type === 'delivery' ? 'del_inp' : type === 'pickup' ? 'pick_inp' : 'ret_inp';
+  const subTab = type === 'delivery' ? 'del' : type === 'pickup' ? 'pick' : 'ret';
+  document.getElementById('modalSubTabGroup').style.display = 'none';
+  switchModalSubTab(subTab);
+  WEIGHT_KEYS.forEach(k => {
+    const inp = document.getElementById(`${prefix}_${k.replace('w', '')}`);
+    if (inp) inp.value = item.weights[k] || 0;
+  });
+  document.getElementById('ocrPreviewBox').style.display = 'none';
+  clearAllConfidenceHighlights();
+  document.getElementById('entryModal').classList.add('active');
+}
+
 function closeModal() { document.getElementById('entryModal').classList.remove('active'); }
+
 function saveRecord() {
   let date = document.getElementById('inputDate').value || getTodayIso();
-  const parseWeights = (prefix) => ({ w0_2: sanitizeInt(document.getElementById(`${prefix}_0_2`).value), w2_4: sanitizeInt(document.getElementById(`${prefix}_2_4`).value), w4_6: sanitizeInt(document.getElementById(`${prefix}_4_6`).value), w6_8: sanitizeInt(document.getElementById(`${prefix}_6_8`).value), w8_10: sanitizeInt(document.getElementById(`${prefix}_8_10`).value), w10_12: sanitizeInt(document.getElementById(`${prefix}_10_12`).value), w12_15: sanitizeInt(document.getElementById(`${prefix}_12_15`).value), wover_15: sanitizeInt(document.getElementById(`${prefix}_over_15`).value) });
+  const parseWeights = (prefix) => ({
+    w0_2: sanitizeInt(document.getElementById(`${prefix}_0_2`).value),
+    w2_4: sanitizeInt(document.getElementById(`${prefix}_2_4`).value),
+    w4_6: sanitizeInt(document.getElementById(`${prefix}_4_6`).value),
+    w6_8: sanitizeInt(document.getElementById(`${prefix}_6_8`).value),
+    w8_10: sanitizeInt(document.getElementById(`${prefix}_8_10`).value),
+    w10_12: sanitizeInt(document.getElementById(`${prefix}_10_12`).value),
+    w12_15: sanitizeInt(document.getElementById(`${prefix}_12_15`).value),
+    wover_15: sanitizeInt(document.getElementById(`${prefix}_over_15`).value)
+  });
   const editId = document.getElementById('editEntryId').value;
   const editType = document.getElementById('editEntryType').value;
   if (editId && editType) {
@@ -1129,21 +1236,94 @@ function saveRecord() {
   closeModal();
   updateAllViews();
 }
+
 function deleteRecord(type, id) { if (confirm("Bạn muốn xóa bản ghi này?")) { appData[type] = appData[type].filter(item => item.id !== id); updateAllViews(); } }
+
 function clearAllHistory() { const total = appData.delivery.length + appData.pickup.length + (appData.return || []).length; if (total === 0) return; if (confirm("Bạn chắc chắn muốn xóa toàn bộ lịch sử?\nBản sao lưu tự động cũng sẽ bị xóa.")) { appData = { delivery: [], pickup: [], return: [] }; localStorage.removeItem('spx_backup_vault'); updateAllViews(); } }
-function copyDataJson() { const jsonStr = JSON.stringify(appData, null, 2); const btn = document.getElementById('copyJsonBtn'); const showSuccess = () => { btn.innerHTML = '✓ Đã chép!'; btn.style.background = '#10b981'; btn.style.borderColor = '#10b981'; btn.style.color = '#fff'; setTimeout(() => { btn.innerHTML = '📋 Chép JSON'; btn.style.background = ''; btn.style.borderColor = ''; btn.style.color = ''; }, 2000); }; const fallback = () => { try { const ta = document.createElement('textarea'); ta.value = jsonStr; ta.style.position = 'fixed'; ta.style.opacity = '0'; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta); showSuccess(); } catch (e) { alert('Không chép được.'); } }; if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(jsonStr).then(showSuccess).catch(fallback); else fallback(); }
+
+function copyDataJson() {
+  const jsonStr = JSON.stringify(appData, null, 2);
+  const btn = document.getElementById('copyJsonBtn');
+  const showSuccess = () => { btn.innerHTML = '✓ Đã chép!'; btn.style.background = '#10b981'; btn.style.borderColor = '#10b981'; btn.style.color = '#fff'; setTimeout(() => { btn.innerHTML = '📋 Chép JSON'; btn.style.background = ''; btn.style.borderColor = ''; btn.style.color = ''; }, 2000); };
+  const fallback = () => { try { const ta = document.createElement('textarea'); ta.value = jsonStr; ta.style.position = 'fixed'; ta.style.opacity = '0'; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta); showSuccess(); } catch (e) { alert('Không chép được.'); } };
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(jsonStr).then(showSuccess).catch(fallback);
+  else fallback();
+}
+
 function openPasteJsonModal() { document.getElementById('jsonPasteInput').value = ''; document.getElementById('pasteJsonModal').classList.add('active'); }
 function closePasteJsonModal() { document.getElementById('pasteJsonModal').classList.remove('active'); }
-function applyImportedPayload(parsed) { let importedData = null, importedSettings = null; if (parsed && parsed.data && (parsed.data.delivery || parsed.data.pickup || parsed.data.return)) { importedData = parsed.data; importedSettings = parsed.settings || null; } else if (parsed && (parsed.delivery || parsed.pickup || parsed.return)) { importedData = parsed; } else return false; appData = { delivery: importedData.delivery || [], pickup: importedData.pickup || [], return: importedData.return || [] }; if (importedSettings) { if (Number.isFinite(importedSettings.vndRate)) { vndRate = importedSettings.vndRate; localStorage.setItem('spx_vnd_rate', vndRate); } if (typeof importedSettings.rankName === 'string') { currentRankName = importedSettings.rankName; localStorage.setItem('spx_rank_name', currentRankName); } if (Number.isFinite(importedSettings.rankBonus)) { currentRankBonus = importedSettings.rankBonus; localStorage.setItem('spx_rank_bonus', currentRankBonus); } if (typeof importedSettings.theme === 'string') { localStorage.setItem('spx_theme', importedSettings.theme); document.documentElement.setAttribute('data-theme', importedSettings.theme); updateThemeBtnUI(importedSettings.theme); } initRankUI(); } return true; }
-function confirmImportJsonString() { const text = document.getElementById('jsonPasteInput').value.trim(); if (!text) { alert("Vui lòng dán chuỗi JSON!"); return; } try { const parsed = JSON.parse(text); if (applyImportedPayload(parsed)) { updateAllViews(); closePasteJsonModal(); alert("Khôi phục dữ liệu thành công!"); } else alert("Chuỗi JSON không đúng định dạng!"); } catch (err) { alert("Dữ liệu JSON không hợp lệ!"); } }
-function exportData() { const payload = { version: 1, exportedAt: new Date().toISOString(), settings: { vndRate, rankName: currentRankName, rankBonus: currentRankBonus, theme: localStorage.getItem('spx_theme') || 'light' }, data: appData }; const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(payload, null, 2)); const a = document.createElement('a'); a.setAttribute("href", dataStr); a.setAttribute("download", `SPX_Data_${getTodayIso()}.json`); document.body.appendChild(a); a.click(); a.remove(); }
-function importData(event) { const file = event.target.files[0]; if (!file) return; const reader = new FileReader(); reader.onload = function(e) { try { const parsed = JSON.parse(e.target.result); if (applyImportedPayload(parsed)) { updateAllViews(); alert("Khôi phục dữ liệu thành công!"); } else alert("File sao lưu không đúng định dạng!"); } catch (err) { alert("Không đọc được file sao lưu!"); } }; reader.readAsText(file); event.target.value = ''; }
-function restoreFromVault() { const vault = JSON.parse(localStorage.getItem('spx_backup_vault')); if (vault && (vault.delivery?.length > 0 || vault.pickup?.length > 0 || vault.return?.length > 0)) { if (confirm("Đã tìm thấy bản sao lưu tự động. Bạn có muốn phục hồi không?")) { appData = vault; updateAllViews(); alert("Đã phục hồi dữ liệu!"); } } else alert("Không tìm thấy dữ liệu tự động lưu trữ."); }
+
+function applyImportedPayload(parsed) {
+  let importedData = null, importedSettings = null;
+  if (parsed && parsed.data && (parsed.data.delivery || parsed.data.pickup || parsed.data.return)) { importedData = parsed.data; importedSettings = parsed.settings || null; }
+  else if (parsed && (parsed.delivery || parsed.pickup || parsed.return)) { importedData = parsed; }
+  else return false;
+  appData = { delivery: importedData.delivery || [], pickup: importedData.pickup || [], return: importedData.return || [] };
+  if (importedSettings) {
+    if (Number.isFinite(importedSettings.vndRate)) { vndRate = importedSettings.vndRate; localStorage.setItem('spx_vnd_rate', vndRate); }
+    if (typeof importedSettings.rankName === 'string') { currentRankName = importedSettings.rankName; localStorage.setItem('spx_rank_name', currentRankName); }
+    if (Number.isFinite(importedSettings.rankBonus)) { currentRankBonus = importedSettings.rankBonus; localStorage.setItem('spx_rank_bonus', currentRankBonus); }
+    if (typeof importedSettings.theme === 'string') { localStorage.setItem('spx_theme', importedSettings.theme); document.documentElement.setAttribute('data-theme', importedSettings.theme); updateThemeBtnUI(importedSettings.theme); }
+    initRankUI();
+  }
+  return true;
+}
+
+function confirmImportJsonString() {
+  const text = document.getElementById('jsonPasteInput').value.trim();
+  if (!text) { alert("Vui lòng dán chuỗi JSON!"); return; }
+  try {
+    const parsed = JSON.parse(text);
+    if (applyImportedPayload(parsed)) { updateAllViews(); closePasteJsonModal(); alert("Khôi phục dữ liệu thành công!"); }
+    else alert("Chuỗi JSON không đúng định dạng!");
+  } catch (err) { alert("Dữ liệu JSON không hợp lệ!"); }
+}
+
+function exportData() {
+  const payload = { version: 1, exportedAt: new Date().toISOString(), settings: { vndRate, rankName: currentRankName, rankBonus: currentRankBonus, theme: localStorage.getItem('spx_theme') || 'light' }, data: appData };
+  const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(payload, null, 2));
+  const a = document.createElement('a');
+  a.setAttribute("href", dataStr);
+  a.setAttribute("download", `SPX_Data_${getTodayIso()}.json`);
+  document.body.appendChild(a); a.click(); a.remove();
+}
+
+function importData(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      const parsed = JSON.parse(e.target.result);
+      if (applyImportedPayload(parsed)) { updateAllViews(); alert("Khôi phục dữ liệu thành công!"); }
+      else alert("File sao lưu không đúng định dạng!");
+    } catch (err) { alert("Không đọc được file sao lưu!"); }
+  };
+  reader.readAsText(file);
+  event.target.value = '';
+}
+
+function restoreFromVault() {
+  const vault = JSON.parse(localStorage.getItem('spx_backup_vault'));
+  if (vault && (vault.delivery?.length > 0 || vault.pickup?.length > 0 || vault.return?.length > 0)) {
+    if (confirm("Đã tìm thấy bản sao lưu tự động. Bạn có muốn phục hồi không?")) {
+      appData = vault; updateAllViews();
+      alert("Đã phục hồi dữ liệu!");
+    }
+  } else alert("Không tìm thấy dữ liệu tự động lưu trữ.");
+}
+
 function openSettingsModal() { document.getElementById('rateVndInput').value = vndRate; document.getElementById('settingsModal').classList.add('active'); }
 function closeSettingsModal() { document.getElementById('settingsModal').classList.remove('active'); }
 function saveSettings() { vndRate = parseFloat(document.getElementById('rateVndInput').value) || 1000; localStorage.setItem('spx_vnd_rate', vndRate); closeSettingsModal(); updateAllViews(); }
 
-if ('serviceWorker' in navigator) { window.addEventListener('load', () => { navigator.serviceWorker.register('./sw.js', { scope: './' }).then(reg => console.log('[PWA] SW đã đăng ký:', reg.scope)).catch(err => console.warn('[PWA] Không đăng ký được SW:', err)); }); }
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js', { scope: './' })
+      .then(reg => console.log('[PWA] SW đã đăng ký:', reg.scope))
+      .catch(err => console.warn('[PWA] Không đăng ký được SW:', err));
+  });
+}
 
 initTheme();
 initRankUI();
